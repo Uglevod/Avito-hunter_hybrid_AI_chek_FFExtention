@@ -1,0 +1,49 @@
+{
+  "manifest_version": 2,
+  "name": "Avito Hunter LLM",
+  "version": "1.0",
+  "description": "Отслеживает изменения на страницах Avito и отправляет уведомления в Telegram",
+  
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "https://api.telegram.org/*",
+    "https://www.avito.ru/*",
+    "https://*/v1/*",
+    "http://*/v1/*"
+  ],
+  
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["https://www.avito.ru/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "Avito Hunter"
+  },
+  
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  
+  "web_accessible_resources": [
+    "sysPrompt"
+  ]
+}
