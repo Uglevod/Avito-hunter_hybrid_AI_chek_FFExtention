@@ -227,6 +227,12 @@
         </div>
 
         <div class="form-group">
+            <label for="maxTokens">Максимальное количество токенов:</label>
+            <input type="number" id="maxTokens" placeholder="100" min="1" max="4000" value="100">
+            <div class="help-text">Максимальное количество токенов для ответа LLM (влияет на длину ответа)</div>
+        </div>
+
+        <div class="form-group">
             <label for="systemPrompt">Системный промпт:</label>
             <textarea id="systemPrompt" rows="4" placeholder="Введите системный промпт для анализа объявлений..."></textarea>
             <div class="help-text">Промпт для анализа объявлений через LLM</div>

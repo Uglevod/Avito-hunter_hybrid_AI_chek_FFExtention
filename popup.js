@@ -17,6 +17,7 @@ class PopupController {
     this.llmApiUrlInput = document.getElementById('llmApiUrl');
     this.llmApiTokenInput = document.getElementById('llmApiToken');
     this.llmModelInput = document.getElementById('llmModel');
+    this.maxTokensInput = document.getElementById('maxTokens');
     this.systemPromptInput = document.getElementById('systemPrompt');
     this.savePromptBtn = document.getElementById('savePromptBtn');
     // refreshIntervalSelect удален из UI, но логика остается
@@ -46,6 +47,7 @@ class PopupController {
       this.llmApiUrlInput.value = this.settings.llmApiUrl || '';
       this.llmApiTokenInput.value = this.settings.llmApiToken || '';
       this.llmModelInput.value = this.settings.llmModel || 'gpt-3.5-turbo';
+      this.maxTokensInput.value = this.settings.maxTokens || 100;
       
       // Загружаем системный промпт из файла если не сохранен в настройках
       if (!this.settings.systemPrompt) {
@@ -91,6 +93,7 @@ class PopupController {
       llmApiUrl: this.llmApiUrlInput.value.trim(),
       llmApiToken: this.llmApiTokenInput.value.trim(),
       llmModel: this.llmModelInput.value.trim(),
+      maxTokens: parseInt(this.maxTokensInput.value) || 100,
       systemPrompt: this.systemPromptInput.value.trim(),
       refreshInterval: this.settings.refreshInterval || 5, // Используем сохраненное значение или по умолчанию
       isEnabled: this.settings.isEnabled || false
@@ -130,7 +133,7 @@ class PopupController {
     });
     
     // Сохранение при изменении полей
-    [this.botTokenInput, this.chatIdInput, this.llmApiUrlInput, this.llmApiTokenInput, this.llmModelInput].forEach(element => {
+    [this.botTokenInput, this.chatIdInput, this.llmApiUrlInput, this.llmApiTokenInput, this.llmModelInput, this.maxTokensInput].forEach(element => {
       element.addEventListener('change', () => {
         console.log('Popup: Изменение поля:', element.id, 'новое значение:', element.value);
         this.saveSettings();

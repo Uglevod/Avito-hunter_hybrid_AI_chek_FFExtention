@@ -13,8 +13,9 @@ class AvitoHunter {
       telegramChatId: '',
       llmApiUrl: '',
       llmApiToken: '',
-      llmModel: 'gpt-3.5-turbo',
+      llmModel: 'z-ai/glm-4.5-air',
       systemPrompt: '',
+      maxTokens: 100,
       refreshInterval: 5, // минуты
       isEnabled: false,
       trackedTabs: new Map(), // Вкладки под отслеживанием
@@ -166,11 +167,11 @@ class AvitoHunter {
 
     try {
       console.log(`Avito Hunter: Анализируем объявление через LLM: ${item.title}`);
-      console.log(`Avito Hunter: Используемая модель: ${settings.llmModel || "gpt-3.5-turbo"}`);
+      console.log(`Avito Hunter: Используемая модель: ${settings.llmModel || "z-ai/glm-4.5-air"}`);
       console.log(`Avito Hunter: Данные объявления:`, item);
       
       const requestBody = {
-        model: settings.llmModel || "gpt-3.5-turbo", // Используем выбранную модель
+        model: settings.llmModel || "z-ai/glm-4.5-air", // Используем выбранную модель
         messages: [
           {
             role: "system",
@@ -182,7 +183,12 @@ class AvitoHunter {
           }
         ],
         temperature: 0.1,
-        max_tokens: 100
+        max_tokens: settings.maxTokens || 100,
+        // Параметры для структурированного вывода JSON
+        response_format: {
+          type: "json_object"
+        },
+        structured_outputs: true
       };
 
       const headers = {
@@ -211,9 +217,32 @@ class AvitoHunter {
       }
 
       const data = await response.json();
-      const analysisText = data.choices[0].message.content.trim();
+      let analysisText = data.choices[0].message.content?.trim() || '';
+      
+      // Проверяем альтернативные поля для LLM ответа
+      // Поддержка reasoning_details для моделей с расширенной логикой
+      if (!analysisText && data.choices[0].message.reasoning) {
+        analysisText = data.choices[0].message.reasoning.trim();
+        console.log(`Avito Hunter: LLM ответ найден в reasoning`);
+      }
+      
+      if (!analysisText && data.choices[0].message.reasoning_details && 
+          Array.isArray(data.choices[0].message.reasoning_details) &&
+          data.choices[0].message.reasoning_details.length > 0) {
+        // Проверяем массив reasoning_details
+        const reasoningDetail = data.choices[0].message.reasoning_details.find(r => r.text);
+        if (reasoningDetail && reasoningDetail.text) {
+          analysisText = reasoningDetail.text.trim();
+          console.log(`Avito Hunter: LLM ответ найден в reasoning_details`);
+        }
+      }
       
       console.log(`Avito Hunter: LLM ответ: ${analysisText}`);
+      
+      if (!analysisText) {
+        console.warn(`Avito Hunter: Не удалось найти ответ LLM ни в одном из поддерживаемых полей`);
+        return { shouldSend: true, analysis: 'Пустой ответ от LLM', llmApproved: false };
+      }
       
       // Парсим JSON ответ
       try {
@@ -228,12 +257,47 @@ class AvitoHunter {
         } else {
           // Если формат не соответствует ожидаемому, отправляем весь ответ
           console.log(`Avito Hunter: LLM вернул неожиданный формат, отправляем весь ответ: ${item.title}`);
+          console.log(`Avito Hunter: Полная длина текста ответа: ${analysisText.length} символов`);
           return { shouldSend: true, analysis: analysisText, llmApproved: false };
         }
       } catch (parseError) {
-        // Если не удалось распарсить JSON, отправляем весь текст ответа
-        console.log(`Avito Hunter: Не удалось распарсить JSON от LLM, отправляем весь ответ: ${item.title}`);
-        return { shouldSend: true, analysis: analysisText };
+        // Если не удалось распарсить JSON напрямую, ищем JSON внутри текста (для reasoning_details)
+        console.log(`Avito Hunter: Ошибка парсинга JSON на верхнем уровне, ищем JSON внутри текста: ${item.title}`);
+        
+        // Ищем JSON паттерн {"good": true/false} внутри текста
+        const jsonPatterns = [
+          /\{\s*"good"\s*:\s*true\s*\}/gi,     // {"good":true} и варианты с пробелами
+          /\{\s*"good"\s*:\s*false\s*\}/gi,    // {"good":false} и варианты с пробелами
+          /\{\s*'good'\s*:\s*true\s*\}/gi,     // {'good':true} с одинарными кавычками
+          /\{\s*'good'\s*:\s*false\s*\}/gi     // {'good':false} с одинарными кавычками
+        ];
+        
+        for (const pattern of jsonPatterns) {
+          const match = analysisText.match(pattern);
+          if (match) {
+            console.log(`Avito Hunter: Найден JSON паттерн внутри текста: ${match[0]}`);
+            try {
+              // Парсим найденный JSON
+              const foundJson = JSON.parse(match[0]);
+              if (foundJson.good === true) {
+                console.log(`Avito Hunter: LLM рекомендует отправить объявление (найдено в reasoning_details): ${item.title}`);
+                return { shouldSend: true, analysis: analysisText, llmApproved: true };
+              } else if (foundJson.good === false) {
+                console.log(`Avito Hunter: LLM НЕ рекомендует отправить объявление (найдено в reasoning_details): ${item.title}`);
+                console.log(`Avito Hunter: Объявление "${item.title}" будет ИСКЛЮЧЕНО из отправки в Telegram`);
+                return { shouldSend: false, analysis: analysisText, llmApproved: false };
+              }
+            } catch (innerParseError) {
+              console.error(`Avito Hunter: Ошибка парсинга найденного JSON: ${match[0]}`);
+            }
+          }
+        }
+        
+        // Если JSON не найден, отправляем весь текст ответа
+        console.log(`Avito Hunter: Не найден JSON паттерн {"good": true/false} внутри reasoning_details, отправляем весь ответ: ${item.title}`);
+        console.log(`Avito Hunter: Полная длина текста ответа: ${analysisText.length} символов`);
+        console.log(`Avito Hunter: Первые 200 символов: ${analysisText.substring(0, 200)}`);
+        return { shouldSend: true, analysis: analysisText, llmApproved: false };
       }
 
     } catch (error) {
@@ -276,10 +340,14 @@ class AvitoHunter {
         // Добавляем информацию о том, что объявление было одобрено LLM
         const itemWithLLMInfo = {
           ...item,
-          llmApproved: analysis.llmApproved || false
+          llmApproved: analysis.llmApproved || false,
+          llmAnalysis: analysis.analysis || ''  // Сохраняем полный текст анализа LLM
         };
         filteredItems.push(itemWithLLMInfo);
         console.log(`Avito Hunter: Объявление "${item.title}" прошло LLM фильтр (одобрено: ${analysis.llmApproved})`);
+        if (analysis.analysis && analysis.analysis.length > 0) {
+          console.log(`Avito Hunter: Анализ LLM сохранен (${analysis.analysis.length} символов)`);
+        }
       } else {
         console.log(`Avito Hunter: Объявление "${item.title}" НЕ прошло LLM фильтр`);
       }
@@ -433,10 +501,18 @@ class AvitoHunter {
       // Добавляем пометку "(LLM checked)" если объявление было одобрено LLM
       const llmCheck = item.llmApproved ? ' (LLM checked)' : '';
       
-      return `🆕 <b>Новое объявление на Avito!${llmCheck}</b>\n\n` +
+      let message = `🆕 <b>Новое объявление на Avito!${llmCheck}</b>\n\n` +
              `💰 <b>Цена:</b> ${price}\n` +
              `📝 <b>Описание:</b> ${description}\n` +
              `🔗 <b>Ссылка:</b> ${url}`;
+      
+      // Добавляем анализ LLM если он есть
+      if (item.llmAnalysis && item.llmAnalysis.length > 0) {
+        const llmAnalysisEscaped = this.escapeHtml(item.llmAnalysis.substring(0, 1000)); // Ограничиваем 1000 символов для TG
+        message += `\n\n🤖 <b>LLM Анализ:</b>\n${llmAnalysisEscaped}`;
+      }
+      
+      return message;
     } else {
       // Несколько объявлений - компактный формат
       let message = `🆕 <b>Найдено ${items.length} новых объявлений на Avito!</b>\n\n`;
@@ -456,7 +532,16 @@ class AvitoHunter {
         
         message += `${index + 1}. <b>${title}${llmCheck}</b>\n` +
                   `💰 ${price} | 📝 ${description}\n` +
-                  `🔗 ${url}\n\n`;
+                  `🔗 ${url}\n`;
+        
+        // Добавляем анализ LLM если он есть
+        if (item.llmAnalysis && item.llmAnalysis.length > 0) {
+          const llmAnalysisShort = item.llmAnalysis.substring(0, 500); // Ограничиваем для компактности
+          const llmAnalysisEscaped = this.escapeHtml(llmAnalysisShort);
+          message += `🤖 <i>LLM:</i> ${llmAnalysisEscaped}\n`;
+        }
+        
+        message += '\n';
       });
       
       return message;
